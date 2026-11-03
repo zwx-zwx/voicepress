@@ -150,21 +150,24 @@ python e2e_test.py                                   :: 全链路自测（弹窗
 ```
 voicepress/
 ├─ voicepress.py      主程序（鼠标钩子 / 录音 / 转写 / 粘贴 / 托盘 / 热加载）
+├─ main.py            打包入口（PyInstaller 用）
+├─ paths.py           路径：只读资源 vs 可写数据（数据默认放非系统盘）
+├─ bootstrap.py       首次运行向导（探测显卡、下载模型）
 ├─ settings.py        设置面板（独立进程运行）
 ├─ autostart.py       开机自启（注册表 Run 项）
 ├─ overlay.py         光标旁的光环/音量条/转圈/对勾（分层窗口）
 ├─ syscursor.py       系统光标替换与还原
 ├─ make_assets.py     光标图标库生成
+├─ build.py           打包脚本（瘦 exe / 离线包）
+├─ voicepress.spec    PyInstaller 配置
 ├─ config.example.json 配置样例（真正的 config.json 不进仓库）
-├─ config.json        配置
-├─ start.cmd          正常启动
+├─ start.cmd          源码模式启动
 ├─ start-admin.cmd    管理员权限启动
 ├─ assets/cursors/    6 套光标（.cur + 缩略图）
 ├─ e2e_test.py        端到端自测
 ├─ fetch_model.py     模型下载脚本（走 ModelScope，hf.co 直连不通）
-├─ models/large-v3/   本地模型（约 3.1GB）
-├─ libs/              依赖（不动系统 conda 环境）
-├─ comtypes-cache/    COM 包装代码缓存
+├─ models/large-v3/   本地模型（约 3.1GB，不进仓库）
+├─ libs/              依赖（不进仓库）
 └─ voicepress.log     运行日志
 ```
 
@@ -175,3 +178,7 @@ voicepress/
 - 焦点判断用 UI Automation（单线程 + 3 秒结果缓存）：EditControl / DocumentControl 才算输入框；UIA 卡住不影响录音流程。
 - 转写串行排队，避免连说两句时显卡抢资源。
 - 单实例互斥锁，防止开两份导致录两遍。
+
+## License
+
+[MIT](LICENSE) © 2026 ZVVVVX

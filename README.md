@@ -35,6 +35,26 @@
 图标可选：话筒·中/小/大、话筒·蓝底、箭头+红点（保持原光标只挂一个小蓝点）、不换光标。
 
 
+## 从零安装（换机器 / 重新克隆）
+
+仓库里不放模型和依赖（合起来 3GB+，全在 .gitignore 里），克隆后补齐这两步：
+
+```bat
+git clone https://github.com/zwx-zwx/voicepress.git
+cd voicepress
+
+:: 1) 依赖装在项目内的 libs/，不污染系统 Python
+python -m pip install --target libs faster-whisper sounddevice pynput pyperclip pystray pillow uiautomation
+
+:: 2) 模型（走 ModelScope，约 3.1GB）
+python fetch_model.py
+
+:: 3) 启动（首次会自动生成 config.json）
+start.cmd
+```
+
+环境要求：Python 3.10+；有 NVIDIA 显卡会走 CUDA fp16（需要 CUDA 12 + cuDNN 9，装 torch 会自带），没有则自动回退 CPU/int8，速度慢一些但能跑。
+
 ## 怎么用
 
 1. 光标点进任意输入框（浏览器地址栏、聊天框、记事本、IDE 编辑器……）
@@ -115,6 +135,7 @@ voicepress/
 ├─ overlay.py         光标旁的光环/音量条/转圈/对勾（分层窗口）
 ├─ syscursor.py       系统光标替换与还原
 ├─ make_assets.py     光标图标库生成
+├─ config.example.json 配置样例（真正的 config.json 不进仓库）
 ├─ config.json        配置
 ├─ start.cmd          正常启动
 ├─ start-admin.cmd    管理员权限启动

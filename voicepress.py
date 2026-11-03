@@ -29,8 +29,16 @@ import time
 import traceback
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(APP_DIR, "config.json")
-LOG_PATH = os.path.join(APP_DIR, "voicepress.log")
+sys.path.insert(0, APP_DIR)
+
+import paths  # noqa: E402
+
+paths.ensure_dirs()
+paths.add_deps_to_path()
+
+CONFIG_PATH = paths.CONFIG_PATH
+LOG_PATH = paths.LOG_PATH
+ASSETS_DIR = paths.ASSETS_DIR
 
 # 依赖装在本目录下的 libs/ 里（不动系统的 conda 环境）
 LIBS_DIR = os.path.join(APP_DIR, "libs")
@@ -48,7 +56,7 @@ try:
 except Exception:                       # pragma: no cover
     CursorSwitcher = None
 
-MIC_CURSOR = os.path.join(APP_DIR, "assets", "mic.cur")
+MIC_CURSOR = os.path.join(ASSETS_DIR, "mic.cur")
 
 # 默认配置：首次运行会写一份到 config.json
 DEFAULTS = {
@@ -113,7 +121,7 @@ def patch_comtypes():
     if getattr(comtypes, "gen", None) is not None:
         return
     import types
-    cache = os.path.join(APP_DIR, "comtypes-cache")
+    cache = os.path.join(paths.DATA_DIR, "comtypes-cache")
     try:
         os.makedirs(cache, exist_ok=True)
     except Exception:
@@ -132,6 +140,16 @@ def load_config():
                 cfg.update(json.load(f))
         except Exception:
             log.warning("config.json 读取失败，使用默认配置", exc_info=True)
+
+    # 离线包里内置了哪个模型就用哪个（内置 small 时别去找 large-v3 下载）
+    try:
+        bundled_dir = paths.BUNDLED_MODELS_DIR
+        if os.path.isdir(bundled_dir):
+            names = [n for n in os.listdir(bundled_dir) if paths.has_model(n)]
+            if names and cfg.get("model") not in names:
+                cfg["model"] = names[0]
+    except Exception:
+        pass
     return cfg
 
 
@@ -455,14 +473,15 @@ class Transcriber:
         self._model = None
         self._lock = threading.Lock()
         self._loading = threading.Lock()
+        self._force_cpu = False
 
     def _load(self):
         with self._loading:
             if self._model is not None:
                 return self._model
             clean_proxy_env()
-            # 模型缓存放项目目录里，避免写到用户目录时的权限/沙箱问题
-            os.environ.setdefault("HF_HOME", os.path.join(APP_DIR, "models"))
+            # 模型缓存放数据目录，别写到临时解压目录（只读）
+            os.environ.setdefault("HF_HOME", paths.MODELS_DIR)
             endpoint = (self.cfg.get("hf_endpoint") or "").strip()
             if endpoint:
                 os.environ.setdefault("HF_ENDPOINT", endpoint)
@@ -470,9 +489,9 @@ class Transcriber:
             device = self.cfg.get("device", "cuda")
             compute = self.cfg.get("compute_type", "float16")
             name = self.cfg.get("model", "large-v3")
-            # 项目里已经有下载好的模型就用本地目录，避免每次去网上拉
-            local = os.path.join(APP_DIR, "models", os.path.basename(str(name)))
-            if os.path.isfile(os.path.join(local, "model.bin")):
+            # 已经有下载好的模型（内置或用户下载）就用本地目录，避免每次去网上拉
+            local = paths.model_dir(os.path.basename(str(name)))
+            if local:
                 name = local
             log.info("加载模型 %s device=%s compute=%s ...", name, device, compute)
             t0 = time.perf_counter()
@@ -494,6 +513,66 @@ class Transcriber:
         except Exception:
             log.error("模型预加载失败", exc_info=True)
 
+    @staticmethod
+    def _is_cuda_error(exc):
+        msg = str(exc).lower()
+        for key in ("cublas", "cudnn", "cuda", "cudart", "cannot be loaded", "no kernel image"):
+            if key in msg:
+                return True
+        return False
+
+    def _build(self, device, compute):
+        from faster_whisper import WhisperModel
+        name = self.cfg.get("model", "large-v3")
+        local = paths.model_dir(os.path.basename(str(name)))
+        if local:
+            name = local
+        log.info("加载模型 %s device=%s compute=%s ...", name, device, compute)
+        t0 = time.perf_counter()
+        model = WhisperModel(name, device=device, compute_type=compute)
+        log.info("模型就绪，用时 %.1fs", time.perf_counter() - t0)
+        return model
+
+    def _load(self):
+        with self._loading:
+            if self._model is not None:
+                return self._model
+            clean_proxy_env()
+            # 模型缓存放数据目录，别写到临时解压目录（只读）
+            os.environ.setdefault("HF_HOME", paths.MODELS_DIR)
+            endpoint = (self.cfg.get("hf_endpoint") or "").strip()
+            if endpoint:
+                os.environ.setdefault("HF_ENDPOINT", endpoint)
+            device = "cpu" if self._force_cpu else self.cfg.get("device", "cuda")
+            compute = self.cfg.get("compute_type", "float16")
+            # CPU 上跑不了 float16，掉回 CPU 时必须换成 int8，否则 ctranslate2 直接拒绝
+            if device == "cpu" and compute in ("float16", "bfloat16", "int8_float16"):
+                compute = "int8"
+            try:
+                model = self._build(device, compute)
+            except Exception:
+                if device != "cpu":
+                    log.warning("GPU 加载失败，回退 CPU/int8", exc_info=True)
+                    self._force_cpu = True
+                    model = self._build("cpu", "int8")
+                else:
+                    raise
+            self._model = model
+            return model
+
+    def _run(self, model, audio):
+        cfg = self.cfg
+        segments, _info = model.transcribe(
+            audio,
+            language=cfg.get("language") or None,
+            beam_size=int(cfg.get("beam_size", 5)),
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=250),
+            initial_prompt=cfg.get("initial_prompt") or None,
+            condition_on_previous_text=False,
+        )
+        return "".join(seg.text for seg in segments)
+
     def transcribe(self, audio):
         import numpy as np
         if audio is None or len(audio) == 0:
@@ -501,21 +580,24 @@ class Transcriber:
         if float(np.max(np.abs(audio))) < 1e-4:
             return ""
         model = self._load()
-        cfg = self.cfg
         with self._lock:
             t0 = time.perf_counter()
-            segments, info = model.transcribe(
-                audio,
-                language=cfg.get("language") or None,
-                beam_size=int(cfg.get("beam_size", 5)),
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=250),
-                initial_prompt=cfg.get("initial_prompt") or None,
-                condition_on_previous_text=False,
-            )
-            text = "".join(seg.text for seg in segments)
+            try:
+                text = self._run(model, audio)
+            except Exception as e:
+                # 打包版里通常不会带 cuBLAS/cuDNN，ctranslate2 会在第一次推理时才报错，
+                # 这里就地降级到 CPU，不打断用户
+                if model is not None and not self._force_cpu and self._is_cuda_error(e):
+                    log.warning("GPU 推理失败，切回 CPU/int8 重试：%s", e)
+                    self._force_cpu = True
+                    self._model = None
+                    model = self._load()
+                    text = self._run(model, audio)
+                else:
+                    raise
             dt = time.perf_counter() - t0
-        log.info("转写 %.2fs 音频用时 %.2fs: %s", len(audio) / float(cfg["sample_rate"]), dt, text.strip())
+        log.info("转写 %.2fs 音频用时 %.2fs: %s",
+                 len(audio) / float(self.cfg["sample_rate"]), dt, text.strip())
         return text
 
 
@@ -930,11 +1012,15 @@ def run_tray(vp):
     def open_settings_panel(icon, item):
         try:
             import subprocess
-            exe = sys.executable
-            pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")
-            if os.path.isfile(pyw):
-                exe = pyw
-            subprocess.Popen([exe, os.path.join(APP_DIR, "settings.py")], cwd=APP_DIR)
+            if paths.FROZEN:
+                # exe 版：用自己 + --settings 起一个新进程（同样独立主线程跑 Tk）
+                subprocess.Popen([sys.executable, "--settings"])
+            else:
+                exe = sys.executable
+                pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+                if os.path.isfile(pyw):
+                    exe = pyw
+                subprocess.Popen([exe, os.path.join(APP_DIR, "settings.py")], cwd=APP_DIR)
         except Exception:
             log.error("打开设置面板失败", exc_info=True)
 
@@ -1077,6 +1163,18 @@ def main():
         log.warning("已经有一个 VoicePress 在运行，本次退出")
         print("VoicePress 已经在运行了")
         return 0
+
+    # exe 版：模型没下来过就先走一次向导（VPR_FORCE_SETUP=1 可在源码模式下复现向导，便于测试）
+    force_setup = os.environ.get("VPR_FORCE_SETUP") == "1"
+    if paths.FROZEN or force_setup:
+        try:
+            import bootstrap
+            if force_setup or not bootstrap.is_ready():
+                if not bootstrap.run_wizard():
+                    log.warning("首次运行初始化未完成")
+                    return 0
+        except Exception:
+            log.error("首次运行引导失败", exc_info=True)
 
     cfg = load_config()
     if not os.path.exists(CONFIG_PATH):

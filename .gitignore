@@ -6,6 +6,17 @@ comtypes-cache/
 __pycache__/
 *.pyc
 
+# 打包产物
+build/
+dist/
+*.spec.bak
+
+# 测试中间目录
+testdata/
+test-wizard/
+test-offline/
+wizard_shot*.png
+
 # 个人配置（含本机麦克风名字等），仓库里放 config.example.json
 config.json
 *.log

@@ -21,8 +21,10 @@ import sys
 
 from PIL import Image, ImageDraw
 
+import paths
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-ASSETS = os.path.join(HERE, "assets")
+ASSETS = paths.ASSETS_DIR
 CURSOR_DIR = os.path.join(ASSETS, "cursors")
 BLUE = (32, 120, 255)
 

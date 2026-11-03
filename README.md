@@ -2,9 +2,29 @@
 
 按住鼠标左键不动 → 说一句话 → 松开 → 文字自动出现在当前光标所在的输入框里。
 
-纯本地运行：语音识别用 faster-whisper large-v3 + 你的 RTX 5060 Ti，不上传任何音频。
+纯本地运行：语音识别用 faster-whisper（GPU 时 large-v3，CPU 时 small），音频不上传。
 
 ![设置面板](assets/settings_panel.png)
+
+---
+
+## 下载哪个
+
+从 [Releases](https://github.com/zwx-zwx/voicepress/releases) 下载：
+
+| 产物 | 体积 | 适合谁 |
+| --- | --- | --- |
+| `VoicePress.exe` | ~130 MB | 图省事。双击即用，**首次运行会下载模型**（有显卡约 3.1GB，没有约 480MB），之后不再需要联网 |
+| `VoicePress-offline.zip` | ~580 MB | 要"下载完就能用、不联网"的场合。解压即用，内置 small 模型，CPU 跑 |
+
+两个都是免安装的，不需要 Python。exe 没有代码签名，Windows SmartScreen 会提示"未知发布者"，点"更多信息 → 仍要运行"即可。
+
+**数据（模型、配置、日志）不放在程序目录**，也不占系统盘：首次运行会自动挑一个可用空间最大的非系统盘，建 `<盘符>:\VoicePress`。想指定位置就设环境变量 `VPR_DATA_DIR`：
+
+```bat
+set VPR_DATA_DIR=D:\我的工具\VoicePress
+VoicePress.exe
+```
 
 ---
 

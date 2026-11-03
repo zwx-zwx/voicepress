@@ -11,8 +11,10 @@ NAME = "VoicePress"
 
 
 def _command():
-    """启动命令：优先用 pythonw（无控制台窗口）。"""
+    """启动命令：exe 版直接启动自己，源码版用 pythonw（无控制台窗口）。"""
     here = os.path.dirname(os.path.abspath(__file__))
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
     script = os.path.join(here, "voicepress.py")
     exe = sys.executable
     pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")

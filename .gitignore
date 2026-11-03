@@ -1,0 +1,15 @@
+# 运行时产物 / 大文件，不进仓库
+models/
+libs/
+tmp/
+comtypes-cache/
+__pycache__/
+*.pyc
+
+# 个人配置（含本机麦克风名字等），仓库里放 config.example.json
+config.json
+*.log
+voicepress.log*
+
+# 自动生成的资源
+assets/app.ico

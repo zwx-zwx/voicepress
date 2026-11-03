@@ -52,7 +52,7 @@ def main():
     img = ImageGrab.grab()
     box = (max(0, rect.left - pad), max(0, rect.top - pad),
            min(img.width, rect.left + 640), min(img.height, rect.top + 1000))
-    img.crop(box).save(os.path.join(HERE, "settings_shot.png"))
+    img.crop(box).save(os.path.join(HERE, "assets", "settings_panel.png"))
     print("截图:", box, flush=True)
 
     user32.PostMessageW(hwnd, 0x0010, 0, 0)          # WM_CLOSE
